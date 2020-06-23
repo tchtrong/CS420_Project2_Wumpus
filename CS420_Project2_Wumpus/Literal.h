@@ -1,6 +1,6 @@
 #pragma once
 
-#include "make_vector.h"
+//#include "make_vector.h"
 
 #include <algorithm>
 #include <initializer_list>
@@ -50,23 +50,7 @@ public:
 				return CNFSentence{ std::move(*this) } | Literal{ lit };
 			}
 			CNFSentence operator|(Literal&& lit)&& {
-				Clause temp{ std::move(lit) };
-				size_t i_ = 0;
-				for (; i_ < size() && clauses[i_] != temp; ++i_) {}
-				if (i_ == size())return std::move(*this);
-				for (auto i = clauses.begin(); i != clauses.end(); ) {
-					*i = std::move(*i) | Literal{ lit };
-					(*i).make_compact();
-					if ((*i).is_unsatisfiable()) return CNFSentence(Literal{ FALSE });
-					else if ((*i).is_tautology()) {
-						i = clauses.erase(i);
-					}
-					else {
-						++i;
-					}
-				}
-				if (!clauses.size()) return CNFSentence(Literal{ TRUE });
-				return std::move(*this);
+				return std::move(*this) | Clause(std::move(lit));
 			}
 
 			//CNF OR Clause
@@ -80,15 +64,37 @@ public:
 				return CNFSentence{ std::move(*this) } | Clause{ lit };
 			}
 			CNFSentence operator|(Clause&& lit)&& {
-				lit.make_compact();
+				if (lit.is_true() || this->is_true()) {
+					return CNFSentence(Literal(TRUE));
+				}
+				else if (lit.is_false()) {
+					return std::move(*this);
+				}
+				else if (this->is_false()) {
+					return CNFSentence(std::move(lit));
+				}
+				if (!std::binary_search(clauses.begin(), clauses.end(), lit)) {
+					CNFSentence res;
+					res.clauses.reserve(size());
+					for (size_t i = 0; i < size(); ++i) {
+						auto temp = (std::move(clauses[i]) | lit);
+						if (temp.is_true()) return CNFSentence(Literal(TRUE));
+						if (!temp.is_false()) {
+							res.clauses.emplace_back(std::move(clauses[i]) | lit);
+						}
+					}
+					return res;
+				}
+				return std::move(*this);
+				/*lit.make_compact();
 				size_t i_ = 0;
 				for (; i_ < size() && clauses[i_] != lit; ++i_) {}
 				if (i_ == size())return std::move(*this);
 				for (auto i = clauses.begin(); i != clauses.end(); ) {
 					*i = std::move(*i) | Clause{ lit };
 					(*i).make_compact();
-					if ((*i).is_unsatisfiable()) return CNFSentence(Literal{ FALSE });
-					else if ((*i).is_tautology()) {
+					if ((*i).is_false()) return CNFSentence(Literal(FALSE));
+					else if ((*i).is_true()) {
 						i = clauses.erase(i);
 					}
 					else {
@@ -96,7 +102,7 @@ public:
 					}
 				}
 				if (!clauses.size()) return CNFSentence(Literal{ TRUE });
-				return std::move(*this);
+				return std::move(*this);*/
 			}
 
 			//CNF OR CNF
@@ -112,57 +118,6 @@ public:
 			CNFSentence operator|(CNFSentence&& lit)&& {
 				std::vector<Clause> res;
 				res.reserve(clauses.size() * lit.size());
-				this->sort();
-				lit.sort();
-
-				/*auto [first, second] = std::mismatch(clauses.begin(), clauses.end(), lit.clauses.begin(), lit.clauses.end());
-				if (first == clauses.end() && second == lit.clauses.end()) {
-					return std::move(*this);
-				}
-				else if (first != clauses.end() && first != clauses.begin()) {
-					if (second == lit.clauses.end()) {
-						std::move(clauses.begin(), clauses.end(), std::back_inserter(res));
-						return res;
-					}
-					else {
-						std::move(clauses.begin(), first, std::back_inserter(res));
-					}
-				}
-				else if (second != lit.clauses.end() && second != lit.clauses.begin()) {
-					if (first == clauses.end()) {
-						std::move(lit.clauses.begin(), lit.clauses.end(), std::back_inserter(res));
-						return res;
-					}
-					else {
-						std::move(clauses.begin(), second, std::back_inserter(res));
-					}
-				}*/
-				/*CNFSentence res_{ res };
-				const auto clause_end = clauses.end();
-				const auto lit_clause_end = lit.clauses.end();
-				const auto stop_i = clause_end - 1;
-				const auto stop_j = lit_clause_end - 1;
-				for (auto i = first; i != clause_end && i != stop_i; ++i) {
-					for (auto j = second; j != lit_clause_end && j != stop_j; ++j) {
-						res_ = std::move(res_) & (*i | *j);
-					}
-					res_ = std::move(res_) & (std::move(*i) | *stop_j);
-				}
-				for (auto j = second; j != stop_j && j != lit_clause_end; ++j) {
-					res_ = std::move(res_) & (*stop_i | *j);
-				}
-				res_ = std::move(res_) & (std::move(*stop_i) | std::move((*stop_j)));
-				return res_;*/
-
-				/*CNFSentence res_{ res };
-				const auto clause_end = clauses.end();
-				const auto lit_clause_end = lit.clauses.end();
-				for (auto i = first; i != clause_end; ++i) {
-					for (auto j = second; j != lit_clause_end; ++j) {
-						res_ = std::move(res_) & (*i | *j);
-					}
-				}
-				return res_;*/
 				
 				size_t pos = 0;
 				for (; pos < size() && pos < lit.size() && clauses[pos] == lit.clauses[pos]; ++pos) {}
@@ -214,22 +169,7 @@ public:
 				return CNFSentence{ std::move(*this) } & Literal{ lit };
 			}
 			CNFSentence operator&(Literal&& lit)&& {
-				if (lit.is_unsatisfiable() || this->is_unsatisfiable()) {
-					return CNFSentence(Literal{ FALSE });
-				}
-				else if (!lit.is_tautology()) {
-					if (this->is_tautology()) {
-						return CNFSentence(std::move(lit));
-					}
-					else {
-						Clause tmp{ std::move(lit) };
-						size_t i_ = 0;
-						for (; i_ < size() && clauses[i_] != tmp; ++i_) {}
-						if (i_ == size()) clauses.emplace_back(std::move(tmp));
-						return std::move((*this));
-					}
-				}
-				return std::move((*this));
+				return std::move(*this) & Clause(std::move(lit));
 			}
 
 			//CNF AND Clause
@@ -243,17 +183,29 @@ public:
 				return CNFSentence{ std::move(*this) } & Clause{ clause }; 
 			}
 			CNFSentence operator&(Clause&& clause)&& {
-				if (clause.is_unsatisfiable() || this->is_unsatisfiable()) {
-					return CNFSentence(Literal{ FALSE });
+				if (clause.is_false() || this->is_false()) {
+					return CNFSentence(Literal(FALSE));
 				}
-				else if (this->is_tautology()) {
+				else if (this->is_true()) {
 					return CNFSentence(std::move(clause));
 				}
+				else if (clause.is_true()) {
+					return std::move(*this);
+				}
 				else {
-					clause.make_compact();
+					auto has_same = std::lower_bound(clauses.begin(), clauses.end(), clause);
+					if (has_same == clauses.end()) {
+						clauses.emplace_back(std::move(clause));
+					}
+					else {
+						if (!(*has_same == clause)) {
+							clauses.emplace(has_same, std::move(clause));
+						}
+					}
+					/*clause.make_compact();
 					size_t i_ = 0;
 					for (; i_ < size() && clauses[i_] != clause; ++i_) {}
-					if (i_ == size()) clauses.emplace_back(std::move(clause));
+					if (i_ == size()) clauses.emplace_back(std::move(clause));*/
 					return std::move((*this));
 				}
 			}
@@ -269,15 +221,21 @@ public:
 				return CNFSentence{ std::move(*this) } &CNFSentence{ sentence };
 			}
 			CNFSentence operator&(CNFSentence&& sentence)&& {
-				if (sentence.is_unsatisfiable() || this->is_unsatisfiable()) {
-					return CNFSentence(Literal{ FALSE });
+				if (sentence.is_false() || this->is_false()) {
+					return CNFSentence(Literal(FALSE));
 				}
-				else if (!sentence.is_tautology()) {
-					if (this->is_tautology()) {
+				else if (!sentence.is_true()) {
+					if (this->is_true()) {
 						return std::move(sentence);
 					}
 					else {
-						std::copy_if(
+						clauses.reserve(size() + sentence.size());
+						for (size_t i = 0; i < sentence.size() && !this->is_false() && !this->is_true(); ++i) {
+							*this = std::move(*this) | std::move(sentence.clauses[i]);
+							if (this->is_false()) return CNFSentence(Literal(FALSE));
+						}
+						return std::move(*this);
+						/*std::copy_if(
 							std::make_move_iterator(sentence.clauses.begin()),
 							std::make_move_iterator(sentence.clauses.end()),
 							std::back_inserter(clauses),
@@ -286,10 +244,10 @@ public:
 								for (; i_ < size() && clauses[i_] != x; ++i_) {}
 								return (i_ == size());
 							}
-						);
+						);*/
 					}
 				}
-				return std::move((*this));
+				//return std::move((*this));
 			}
 
 			//CNFSentence IMPLIES Literal
@@ -352,8 +310,8 @@ public:
 				return ~CNFSentence{ *this };
 			}
 			CNFSentence operator~()&& {
-				if (this->is_tautology()) return CNFSentence(Literal{ FALSE });
-				else if (this->is_unsatisfiable()) return CNFSentence(Literal{ TRUE });
+				if (this->is_true()) return CNFSentence(Literal(FALSE));
+				else if (this->is_false()) return CNFSentence(Literal{ TRUE });
 
 				CNFSentence res{ ~std::move(clauses.front()) };
 				for (auto i = clauses.begin() + 1; i != clauses.end(); ++i) {
@@ -362,11 +320,11 @@ public:
 				return res;
 			}
 
-			bool is_tautology() const {
-				return clauses.size() == 1 && clauses.front().is_tautology();
+			bool is_true() const {
+				return clauses.size() == 1 && clauses.front().is_true();
 			}
-			bool is_unsatisfiable() const {
-				return clauses.size() == 1 && clauses.front().is_unsatisfiable();
+			bool is_false() const {
+				return clauses.size() == 1 && clauses.front().is_false();
 			}
 
 			size_t size() const {
@@ -403,21 +361,29 @@ public:
 				return *this;
 			}
 
-		private:
 			CNFSentence(const std::vector<Clause>& list) : CNFSentence(std::vector<Clause>(list)) {}
-			CNFSentence(std::vector<Clause>&& list) : clauses{ std::move(list) } {
-				make_compact();
-				sort();
+			CNFSentence(std::vector<Clause>&& list) : clauses(std::move(list)) {
+				//make_compact();
+				//sort();
 			}
+
+		private:
 			std::vector<Clause> clauses;
 			friend Clause;
 			friend Literal;
 		};
 	public:
-		Clause() : literals{ Literal{FALSE} } {}
+		Clause() : Clause(Literal(FALSE)) { std::cout << "Default Clause\n"; }
 
-		Clause(const Literal& lit) : literals({ lit }) {}
-		Clause(Literal&& lit) :literals({ std::move(lit) }) {}
+		Clause(const Literal& lit) : Clause(Literal(lit)) {}
+		Clause(Literal&& lit) {
+			literals.emplace_back(std::move(lit));
+		}
+
+		/*Clause(const Clause&) noexcept { std::cout << "Copy Clause\n"; }
+		Clause(Clause&&) noexcept { std::cout << "Move Clause\n"; }
+		Clause& operator=(const Clause&) noexcept { std::cout << "Copy = Clause\n"; return *this; }
+		Clause& operator=(Clause&&) noexcept { std::cout << "Move = Clause\n";  return *this; }*/
 
 		//Clause OR Literal
 		Clause operator|(const Literal& clause)const& {
@@ -430,20 +396,36 @@ public:
 			return Clause{ std::move(*this) } | Literal{ clause };
 		}
 		Clause operator|(Literal&& clause)&& {
-			if (this->is_tautology() || clause.is_tautology()) {
-				return { Literal{ TRUE } };
+			if (this->is_true() || clause.is_true()) {
+				return Literal{ TRUE };
 			}
-			else if (clause.is_unsatisfiable()) {
+			else if (clause.is_false()) {
 				return std::move(*this);
 			}
-			else if (this->is_unsatisfiable()) {
+			else if (this->is_false()) {
 				return { std::move(clause) };
 			}
 			else {
-				size_t i_ = 0;
+				auto has_cpl = std::binary_search(literals.begin(), literals.end(), ~clause);
+				if (has_cpl) return Literal(TRUE);
+				auto has_same = std::lower_bound(literals.begin(), literals.end(), clause);
+				if (has_same == literals.end()) {
+					literals.emplace_back(std::move(clause));
+				}
+				else {
+					if (!(*has_same == clause)) {
+						literals.emplace(has_same, std::move(clause));
+					}
+				}
+				/*auto [has_cpl, has_same, pos] = binary_search(clause);
+				if (has_cpl) return Literal(TRUE);
+				if (!has_same) {
+					literals.emplace(literals.cbegin() + pos, std::move(clause));
+				}*/
+				/*size_t i_ = 0;
 				for (; i_ < size() && literals[i_] != clause; ++i_) {}
 				if (i_ == size()) literals.emplace_back(std::move(clause));
-				this->sort();
+				this->sort();*/
 				return std::move(*this);
 			}
 		}
@@ -459,22 +441,21 @@ public:
 			return Clause{ std::move(*this) } | Clause{ sentence };
 		}
 		Clause operator|(Clause&& sentence)&& {
-			if (this->is_tautology() || sentence.is_tautology()) {
+			if (this->is_true() || sentence.is_true()) {
 				return Literal{ TRUE };
 			}
-			else if (sentence.is_unsatisfiable()) {
+			else if (sentence.is_false()) {
 				return std::move(*this);
 			}
-			else if (this->is_unsatisfiable()) {
+			else if (this->is_false()) {
 				return { std::move(sentence) };
 			}
 			else {
-				for (size_t i = 0; i < sentence.size(); ++i) {
-					size_t j = 0;
-					for (; j < size() && literals[j] != sentence.literals[i]; ++j) {}
-					if (j == size()) literals.emplace_back(std::move(sentence.literals[i]));
+				literals.reserve(size() + sentence.size());
+				for (size_t i = 0; i < sentence.size() && !this->is_false() && !this->is_true(); ++i) {
+					*this = std::move(*this) | std::move(sentence.literals[i]);
 				}
-				this->sort();
+				//this->sort();
 				return std::move(*this);
 			}
 		}
@@ -504,22 +485,31 @@ public:
 			return CNFSentence(std::move(*this)) & CNFSentence(lit);
 		}
 		CNFSentence operator&(Literal&& lit)&& {
-			if (lit.is_unsatisfiable() || this->is_unsatisfiable()) {
-				return CNFSentence(Literal{ FALSE });
+			if (lit.is_false() || this->is_false() ||
+				size() == 1 && literals[0].is_complementary(lit))
+			{
+				return CNFSentence(Literal(FALSE));
 			}
-			else if (lit.is_tautology()) {
+			else if (lit.is_true()) {
 				return CNFSentence(std::move(*this));
 			}
-			else if (this->is_tautology()) {
+			else if (this->is_true()) {
 				return CNFSentence(std::move(lit));
 			}
 			else {
-				this->make_compact();
 				std::vector<Clause> res;
-				res.reserve(this->size() + 1);
-
+				Clause temp(std::move(lit));
+				res.reserve(2);
+				if (*this < lit) {
+					res.emplace_back(std::move(*this));
+					res.emplace_back(std::move(lit));
+				}
+				else {
+					res.emplace_back(std::move(lit));
+					res.emplace_back(std::move(*this));
+				}
+				return res;
 			}
-			return CNFSentence(std::move(*this)) & CNFSentence(std::move(lit));
 		}
 
 		//Clause AND Clause
@@ -533,15 +523,15 @@ public:
 			return Clause{ std::move(*this) } & Clause{ clause };
 		}
 		CNFSentence operator&(Clause&& clause)&& {
-			if ((*this).is_unsatisfiable() || clause.is_unsatisfiable()) {
-				return CNFSentence(Literal{ FALSE });
+			if ((*this).is_false() || clause.is_false()) {
+				return CNFSentence(Literal(FALSE));
 			}
 			this->make_compact();
-			if (this->is_tautology()) {
+			if (this->is_true()) {
 				return CNFSentence(std::move(clause));
 			}
 			clause.make_compact();
-			if (clause.is_tautology()) {
+			if (clause.is_true()) {
 				return CNFSentence(std::move(*this));
 			}
 			if (*this == clause) return CNFSentence(std::move(clause));
@@ -623,10 +613,10 @@ public:
 		}
 		CNFSentence operator~()&& {
 			this->make_compact();
-			if (this->is_tautology()) {
-				return CNFSentence(Literal{ FALSE });
+			if (this->is_true()) {
+				return CNFSentence(Literal(FALSE));
 			}
-			else if (this->is_unsatisfiable()) {
+			else if (this->is_false()) {
 				return CNFSentence(Literal{ TRUE });
 			}
 			else {
@@ -662,14 +652,23 @@ public:
 			return !(*this == lit);
 		}
 
-		bool is_tautology() const {
-			if (literals.size() == 1 && literals[0].is_tautology()) {
+		bool is_true() const {
+			if (literals.size() == 1 && literals[0].is_true()) {
 				return true;
 			}
 			return false;
 		}
-		bool is_unsatisfiable() const {
-			return literals.size() == 1 && literals.front().is_unsatisfiable();
+		bool is_false() const {
+			return literals.size() == 1 && literals.front().is_false();
+		}
+		bool is_complimentary(const Literal& lit)const {
+			return size() == 1 && lit.is_complementary(literals[0]);
+		}
+		bool is_complimentary(const Clause& clause)const {
+			return size() == 1 && clause.size() == 1 && literals[0].is_complementary(clause.literals[0]);
+		}
+		bool is_complimentary(const CNFSentence& sentence)const {
+			return sentence.size() == 1 && this->is_complimentary(sentence.clauses[0]);
 		}
 
 		size_t size() const {
@@ -714,12 +713,56 @@ public:
 			if (!literals.size()) literals.emplace_back(Literal{ TRUE });
 		}
 
-		void sort() {
+		Clause& sort() {
 			std::sort(literals.begin(), literals.end(), std::less<Literal>());
+			return *this;
 		}
 
 	private:
+		Clause(const std::vector<Literal>& lits) :Clause(std::vector<Literal>(lits)) {}
+		Clause(std::vector<Literal>&& lits) :literals(std::move(lits)) {}
+
+		std::tuple<bool, bool, size_t> binary_search(const Literal& x)
+		{
+			size_t first = 0;
+			size_t it = 0;
+			size_t count = size();
+			size_t step = 0;
+
+			while (count > 0) {
+				it = first;
+				step = count / 2;
+				it += step;
+				if (literals[it] < x) {
+					first = ++it;
+					count -= step + 1;
+				}
+				else
+					count = step;
+			}
+			if (!first) {
+				if (literals[first] == ~x) return { true, false, 0 };
+				if (first + 1 < size() && literals[first + 1] == ~x)return { true, false, 0 };
+				if (literals[first] == x) return { false, true, 0 };
+				if (first + 1 < size() && literals[first + 1] == x)return { false, true, 0 };
+			}
+			else if (first == size()) {
+				if (first - 1 > 0 && literals[first - 1] == ~x)return { true, false, 0 };
+				if (first - 1 > 0 && literals[first - 1] == x)return { false, true, 0 };
+			}
+			else {
+				if (literals[first] == ~x) return { true, false, 0 };
+				if (first + 1 < size() && literals[first + 1] == ~x)return { true, false, 0 };
+				if (first - 1 > 0 && literals[first - 1] == ~x)return { true, false, 0 };
+				if (literals[first] == x) return { false, true, 0 };
+				if (first + 1 < size() && literals[first + 1] == x)return { false, true, 0 };
+				if (first - 1 > 0 && literals[first - 1] == x)return { false, true, 0 };
+			}
+			return { false, false, first };
+		}
+
 		std::vector<Literal> literals;
+
 		friend Literal;
 	};
 public:
@@ -730,6 +773,14 @@ public:
 			this->name.erase(this->name.begin());
 		}
 	}
+
+	/*Literal() noexcept { std::cout << "Default Literal\n"; }
+	Literal(const Literal&) noexcept { std::cout << "Copy Literal\n"; }
+	Literal(Literal&&) noexcept { std::cout << "Move Literal\n"; }
+	Literal& operator=(const Literal&) noexcept { std::cout << "Copy = Literal\n";  return *this;
+	}
+	Literal& operator=(Literal&&) noexcept  { std::cout << "Move = Literal\n";  return *this;
+	}*/
 
 	//Literal AND Literal
 	CNFSentence operator&(const Literal& lit)const& {
@@ -742,20 +793,31 @@ public:
 		return Literal{ std::move(*this) } & Literal{ lit };
 	}
 	CNFSentence operator&(Literal&& lit)&& {
-		if (this->is_unsatisfiable() || lit.is_unsatisfiable() || this->is_complementary(lit)) {
-			return CNFSentence(Literal{ FALSE });
+		if (this->is_false() || lit.is_false() || this->is_complementary(lit)) {
+			return CNFSentence(Literal(FALSE));
 		}
-		else if (lit.is_tautology()) {
+		else if (lit.is_true()) {
 			return CNFSentence(std::move(*this));
 		}
-		else if (this->is_tautology()) {
+		else if (this->is_true()) {
 			return CNFSentence(std::move(lit));
 		}
 		else if (*this == lit) {
 			return CNFSentence(std::move(*this));
 		}
-		
-		else return CNFSentence(std::move(*this)) & CNFSentence(std::move(lit));
+		else {
+			std::vector<Clause> res;
+			res.reserve(2);
+			if (*this < lit) {
+				res.emplace_back(*this);
+				res.emplace_back(lit);
+			}
+			else {
+				res.emplace_back(lit);
+				res.emplace_back(*this);
+			}
+			return res;
+		}
 	}
 	
 	//Literal AND Clause
@@ -797,16 +859,28 @@ public:
 		return Literal{ std::move(*this) } | Literal{ lit };
 	}
 	Clause operator|(Literal&& lit)&& {
-		if (this->is_complementary(lit)) {
-			return Literal{ TRUE };
+		if (this->is_complementary(lit) || this->is_true() || lit.is_true()) {
+			return Literal(TRUE);
 		}
-		else if (*this == lit) {
+		else if (*this == lit || lit.is_false()) {
 			return std::move(*this);
 		}
-		if (*this < lit) {
-			return Clause{ std::move(*this) } | Clause{  std::move(lit)};
+		else if (this->is_false()) {
+			return std::move(lit);
 		}
-		else return Clause{ std::move(lit) } | Clause{ std::move(*this) };
+		else {
+			std::vector<Literal> res;
+			res.reserve(2);
+			if (*this < lit) {
+				res.emplace_back(std::move(*this));
+				res.emplace_back(std::move(lit));
+			}
+			else {
+				res.emplace_back(std::move(lit));
+				res.emplace_back(std::move(*this));
+			}
+			return res;
+		}
 	}
 
 	//Literal OR Clause
@@ -820,7 +894,7 @@ public:
 		return Literal{ std::move(*this) } | Clause{ lit };
 	}
 	Clause operator|(Clause&& lit)&& {
-		return Clause{ std::move(lit) } | Literal{ std::move(*this) };
+		return Clause(std::move(lit)) | Literal(std::move(*this));
 	}
 
 	//Literal OR CNF
@@ -834,7 +908,7 @@ public:
 		return Literal{ std::move(*this) } | CNFSentence{ lit };
 	}
 	CNFSentence operator|(CNFSentence&& lit)&& {
-		return CNFSentence{ std::move(lit) } | Literal{ std::move(*this) };
+		return CNFSentence(std::move(lit)) | Literal(std::move(*this));
 	}
 
 	//Literal IMPLIES Literal
@@ -898,7 +972,7 @@ public:
 	}
 	Literal operator~()&& {
 		if (name == TRUE) {
-			return Literal{ FALSE };
+			return Literal(FALSE);
 		}
 		else if (name == FALSE) {
 			return Literal{ TRUE };
@@ -907,22 +981,33 @@ public:
 	}
 
 	bool operator<(const Literal& lit) const {
+		if (name == lit.name) {
+			return negation < lit.negation;
+		}
 		return name < lit.name;
 	}
 	bool operator==(const Literal& lit) const {
-		return name == lit.name;
+		return name == lit.name && negation == lit.negation;
 	}
 	bool operator!=(const Literal& lit) const {
 		return !(*this == lit);
 	}
 
 	bool is_complementary(const Literal& lit) const {
-		return name == lit.name && negation != lit.negation;
+		return name == lit.name && negation != lit.negation
+			|| name == TRUE && lit.name == FALSE
+			|| name == FALSE && lit.name == TRUE;
 	}
-	bool is_tautology() const {
+	bool is_complementary(const Clause& clause) const {
+		return clause.size() == 1 && clause.literals[0].is_complementary(*this);
+	}
+	bool is_complementary(const CNFSentence& sentence) const {
+		return sentence.size() == 1 && this->is_complementary(sentence.clauses[0]);
+	}
+	bool is_true() const {
 		return name == TRUE;
 	}
-	bool is_unsatisfiable() const {
+	bool is_false() const {
 		return name == FALSE;
 	}
 
