@@ -6,10 +6,6 @@
 #include <string>
 #include <iostream>
 #include <vector>
-#include <set>
-
-class HornClause;
-class KB_HornClause;
 
 constexpr char TRUE[] = "TRUE";
 constexpr char FALSE[] = "FALSE";
@@ -19,9 +15,6 @@ public:
 	class Clause {
 	public:
 		class CNFSentence {
-		private:
-			friend HornClause;
-			friend KB_HornClause;
 		public:
 			CNFSentence() : clauses{ Clause{Literal{TRUE}} } {}
 
@@ -95,10 +88,10 @@ public:
 			CNFSentence operator|(CNFSentence&& lit)const& {
 				return CNFSentence{ *this } | CNFSentence{ std::move(lit) };
 			}
-			CNFSentence operator|(const CNFSentence& lit)&& {
+			CNFSentence&& operator|(const CNFSentence& lit)&& {
 				return CNFSentence{ std::move(*this) } | CNFSentence{ lit };
 			}
-			CNFSentence operator|(CNFSentence&& lit)&& {
+			CNFSentence&& operator|(CNFSentence&& lit)&& {
 				CNFSentence res;
 				res.clauses.reserve(lit.size() * size());
 				res.clauses.erase(res.clauses.begin());
@@ -206,7 +199,7 @@ public:
 				return CNFSentence{ std::move(*this) } &Clause{ clause };
 			}
 			CNFSentence operator&(Clause&& clause)&& {
-				if (clause.is_false() || this->is_false() || clause.is_complimentary(*this)) {
+				if (clause.is_false() || this->is_false()) {
 					return CNFSentence(Literal(FALSE));
 				}
 				else if (this->is_true()) {
@@ -249,13 +242,13 @@ public:
 					}
 					else {
 						clauses.reserve(size() + sentence.size());
-						for (size_t i = 0; i < sentence.size() && !this->is_false(); ++i) {
+						for (size_t i = 0; i < sentence.size() && !this->is_false() && !this->is_true(); ++i) {
 							*this = std::move(*this) & std::move(sentence.clauses[i]);
 							if (this->is_false()) return CNFSentence(Literal(FALSE));
 						}
 					}
+					return std::move(*this);
 				}
-				return std::move(*this);
 			}
 
 			//CNFSentence IMPLIES Literal
@@ -313,50 +306,6 @@ public:
 				return ((*this) & sentence) | (~(*this) & ~sentence);
 			}
 
-			bool entails(const CNFSentence& sentence) {
-				auto temp = *this & ~sentence;
-				std::set<Clause> res;
-				for (size_t i = 0; i < temp.clauses.size(); ++i) {
-					for (size_t j = i + 1; j < temp.clauses.size(); ++j) {
-						auto first = temp.clauses[i].literals;
-						auto second = temp.clauses[j].literals;
-						for (auto k = first.begin(); k != first.end(); ++k) {
-							if (std::binary_search(second.begin(), second.end(), ~(*k))) {
-								second.erase(std::lower_bound(second.begin(), second.end(), ~(*k)));
-								k = first.erase(k);
-								break;
-							}
-						}
-						if (first.size() == 0 && second.size() == 0) return true;
-						auto a = Clause{ std::move(first) } | Clause{ std::move(second) };
-						if (!a.is_true()) res.emplace(std::move(a));
-					}
-				}
-				bool looping = true;
-				while (looping) {
-					auto res_size = res.size();
-					for (auto i = res.begin(); i != res.end() ; ++i) {
-						for (auto j = std::next(i); j != res.end(); ++j) {
-							auto first = (*i).literals;
-							auto second = (*j).literals;
-							for (auto k = first.begin(); k != first.end(); ++k) {
-								if (std::binary_search(second.begin(), second.end(), ~(*k))) {
-									second.erase(std::lower_bound(second.begin(), second.end(), ~(*k)));
-									k = first.erase(k);
-									break;
-								}
-							}
-							if (first.size() == 0 && second.size() == 0) return true;
-							auto a = Clause{ std::move(first) } | Clause{ std::move(second) };
-							if (!a.is_true()) res.emplace(std::move(a));
-						}
-					}
-					if (res_size == res.size()) {
-						return false;
-					}
-				}
-			}
-
 			//NEGATION
 			CNFSentence operator~()const& {
 				return ~CNFSentence{ *this };
@@ -404,7 +353,7 @@ public:
 				}
 			}
 
-		private:
+		private:			
 			CNFSentence(const std::vector<Clause>& list) : CNFSentence(std::vector<Clause>(list)) {}
 			CNFSentence(std::vector<Clause>&& list) : clauses(std::move(list)) {}
 			bool is_true() const {
@@ -421,9 +370,6 @@ public:
 			friend Clause;
 			friend Literal;
 		};
-	private:
-		friend HornClause;
-		friend KB_HornClause;
 	public:
 		Clause() : Clause(Literal(FALSE)) {}
 
@@ -590,10 +536,10 @@ public:
 			return  Clause{ *this } &CNFSentence{ sentence };
 		}
 		CNFSentence operator&(CNFSentence&& sentence)const& {
-			return CNFSentence{ std::move(sentence) } &Clause{ *this };
+			return CNFSentence{ std::move(sentence) } & Clause{ *this };
 		}
 		CNFSentence operator&(const CNFSentence& sentence)&& {
-			return CNFSentence{ sentence } &Clause{ std::move(*this) };
+			return CNFSentence{ sentence } & Clause{ std::move(*this) };
 		}
 		CNFSentence operator&(CNFSentence&& sentence)&& {
 			return CNFSentence{ std::move(sentence) } &Clause{ std::move(*this) };
@@ -722,34 +668,23 @@ public:
 		bool is_false() const {
 			return literals.size() == 1 && literals.front().is_false();
 		}
-		bool is_complimentary(const CNFSentence& s) {
-			for (auto& l : literals) {
-				if (!std::binary_search(s.clauses.begin(), s.clauses.end(), Clause(~l))) {
-					return false;
-				}
-			}
-			return true;
-		}
 		size_t size() const {
 			return literals.size();
 		}
 		std::vector<Literal> literals;
 		friend Literal;
 	};
-private:
-	friend HornClause;
-	friend KB_HornClause;
 public:
 	using CNFSentence = Clause::CNFSentence;
 	Literal(std::string name, bool negation = false) :
-		name(name),
+		name(
+			[&]()
+			{
+				if (name[0] == '~') name.erase(name.begin());
+				return name;
+			}()),
 		negation(negation)
-	{
-		if (this->name[0] == '~') {
-			this->name.erase(this->name.begin());
-			this->negation = !this->negation;
-		}
-	}
+	{}
 
 	//Literal AND Literal
 	CNFSentence operator&(const Literal& lit)const& {
@@ -791,30 +726,30 @@ public:
 
 	//Literal AND Clause
 	CNFSentence operator&(const Clause& clause)const& {
-		return Clause{ clause } &Literal{ *this };
+		return Clause{ clause } & Literal{ *this };
 	}
 	CNFSentence operator&(Clause&& clause)const& {
-		return Clause{ std::move(clause) } &Literal{ *this };
+		return Clause{ std::move(clause) } & Literal{ *this };
 	}
 	CNFSentence operator&(const Clause& clause)&& {
-		return Clause{ clause } &Literal{ std::move(*this) };
+		return Clause{ clause } & Literal{ std::move(*this) };
 	}
 	CNFSentence operator&(Clause&& clause)&& {
-		return Clause{ std::move(clause) } &Literal{ std::move(*this) };
+		return Clause{ std::move(clause) } & Literal{ std::move(*this) };
 	}
 
 	//Literal AND CNF
 	CNFSentence operator&(const CNFSentence& clause)const& {
-		return CNFSentence{ clause } &Literal{ *this };
+		return CNFSentence{ clause } & Literal{ *this };
 	}
 	CNFSentence operator&(CNFSentence&& clause)const& {
-		return CNFSentence{ std::move(clause) } &Literal{ *this };
+		return CNFSentence{ std::move(clause) } & Literal{ *this };
 	}
 	CNFSentence operator&(const CNFSentence& clause)&& {
-		return CNFSentence{ clause } &Literal{ std::move(*this) };
+		return CNFSentence{ clause } & Literal{ std::move(*this) };
 	}
 	CNFSentence operator&(CNFSentence&& clause)&& {
-		return CNFSentence{ std::move(clause) } &Literal{ std::move(*this) };
+		return CNFSentence{ std::move(clause) } & Literal{ std::move(*this) };
 	}
 
 	//Literal OR Literal
