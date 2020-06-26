@@ -88,7 +88,7 @@ void create_random_map(std::string filepath) {
 int main() {
 	Board brd("map1.txt");
 	KB_HornClause kb(brd.width(), brd.height(), brd.get_agent_starting_point());
-	Agent_HornClause agent(kb, brd, brd.get_agent_starting_point(), 70);
+	Agent_HornClause agent(kb, brd, brd.get_agent_starting_point(), 100);
 	agent.run();
 	return 0;
 }

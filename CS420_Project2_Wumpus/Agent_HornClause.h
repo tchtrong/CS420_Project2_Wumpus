@@ -43,7 +43,7 @@ public:
 				std::make_move_iterator(pos_to_visit.begin()), std::make_move_iterator(pos_to_visit.end()),
 				std::back_inserter(to_visit),
 				[&](auto p) {
-					return std::find(to_visit.begin(), to_visit.end(), p + pos) == to_visit.end();
+					return std::find(to_visit.begin(), to_visit.end(), p) == to_visit.end();
 				}
 			);
 
@@ -51,7 +51,9 @@ public:
 			if (to_visit.empty()) {
 				auto wumpus_direct = ask_possible_pos(Question::WUMPUS);
 				for (auto& w : wumpus_direct) {
-					if (std::find(wumpus_pos.begin(), wumpus_pos.end(), std::make_pair(pos, w)) != wumpus_pos.end()) {
+					if (std::find(wumpus_pos.begin(), 
+						wumpus_pos.end(), 
+						std::make_pair(pos, w)) == wumpus_pos.end()) {
 						wumpus_pos.emplace_back(pos, w);
 					}
 				}
@@ -61,11 +63,11 @@ public:
 			//Cannot find any possible of wumpus nearby, choose to go to maybe safe location
 			if (to_visit.empty() && !will_shoot) {
 				auto maybe_safe_direct = ask_possible_pos(Question::NOT_UNSAFE);
-				if (maybe_safe_direct.size()) {
-					to_visit.emplace_back(std::move(maybe_safe_direct[0]) + pos);
-				}
 				for (auto& w : maybe_safe_direct) {
-					if (std::find(not_unsafe.begin(), not_unsafe.end(), std::make_pair(pos, w)) != not_unsafe.end()) {
+					if (std::find(not_unsafe.begin(), 
+						not_unsafe.end(), 
+						std::make_pair(pos, w)) == not_unsafe.end() &&
+						!brd.get_tile(Position{ pos + w }).is_visited) {
 						not_unsafe.emplace_back(pos, w);
 					}
 				}
@@ -73,7 +75,7 @@ public:
 			}
 
 			//If cannot make any further decision, break the loop
-			if (to_visit.empty()) {
+			if (to_visit.empty() && !will_shoot && !move_to_not_unsafe) {
 				std::cout << "Agent cannot figure anything and will decide to quit the dungeon\n";
 				break;
 			}
@@ -116,13 +118,17 @@ public:
 						return "right of the map";
 					}
 				}();
+				std::cout << "Agent cannot find safe location and will guess wumpus location to shoot\n";
 				std::cout << "Agent move back to:\n" << pos;
 				std::cout << "Agent shoot from: " << pos << "to the " << direct_;
 				if (kill) std::cout << "Agent has killed a wumpus";
 				if (pick_gold) {
 					std::cout << "Agent pick up gold\n";
 				}
-				std::cout  << pos << brd.get_tile(pos);
+				std::cout  << pos << brd.get_tile(pos) << "\nPoint: " << point << "\n\n";
+				move(pos + wumpus_pos.back().second);
+				brd.print(pos);
+				std::cout << "Agent move to:\n" << pos << brd.get_tile(pos) << "\nPoint: " << point << "\n\n";;
 				wumpus_pos.pop_back();
 			}
 			else if (move_to_not_unsafe) {
@@ -132,6 +138,7 @@ public:
 					brd.get_tile(pos).is_gold = false;
 				}
 				brd.print(pos);
+				std::cout << "Agent cannot find safe location\nor any possible location of wumpus to shoot\nand will choose location that is not unsafe\n";
 				std::cout << "Agent move back to:\n" << pos << brd.get_tile(pos) << '\n';
 				std::cout << "Point: " << point << "\n\n";
 				move(pos + not_unsafe.back().second);
@@ -148,7 +155,7 @@ public:
 			}
 			std::cout << "Point: " << point << "\n\n";
 		}
-		std::cout << "Agent has visited the maximum number of rooms.";
+		if(!limit) std::cout << "Agent has visited the maximum number of rooms.";
 	}
 
 private:
@@ -251,8 +258,8 @@ private:
 
 	//Actions
 	void move(const Position& location) {
-		--limit;
 		pos = location;
+		if (!brd.get_tile(pos).is_visited) --limit;
 		brd.mark_visited(pos);
 	}
 	bool shoot(const Position& direct) {
